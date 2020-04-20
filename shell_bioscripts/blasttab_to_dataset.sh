@@ -20,7 +20,7 @@ class=$2
 
 if [ -f "$blastfile" ]; then
 	awk -v class="$class" '{split($1,v,"|"); print v[2],$11, class}' $blastfile\
-	|awk '{if (!($1 in out) ||$2 < evalue[$1]) {out[$1]=$0; evalue[$1]=$2}} END{for(key in out){print out[key]}}'
+	|awk '{if (!($1 in out) ||$2 < evalue[$1]) {out[$1]=$0; evalue[$1]=$2}} END{for(key in out){print out[key]}}'|sort -k 1
 else
 	echo "No input file given. This script requires a BLAST output file in tabular format as first argument."
 fi
