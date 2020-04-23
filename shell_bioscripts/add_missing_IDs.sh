@@ -2,7 +2,7 @@
 #
 # Author: Saul Pierotti
 # Mail: saulpierotti.bioinfo@gmail.com
-# Last updated: 17/04/2020
+# Last updated: 21/04/2020
 #
 # It adds missing IDs to a dataset to be used for classification.
 # Input must be sorted
@@ -19,7 +19,12 @@ id_list=$2
 score=$3
 class=$4
 
-cat $dataset
-for id in $(cut -d " " -f 1 $dataset|comm -3 -1 - $id_list); do
-	echo "$id $score $class"
-done
+
+if [ -f "$dataset" ] && [ -f "$id_list" ]; then
+	cat $dataset
+	for id in $(cut -d " " -f 1 $dataset|comm -3 -1 - $id_list); do
+		echo "$id $score $class"
+	done
+else
+	echo "No input files given. This script requires a dataset and and id list."
+fi

@@ -8,4 +8,8 @@
 
 fasta=$1
 
-grep ">" $fasta|cut -d "|" -f 2|sort
+if [ -f "$fasta" ]; then
+	grep ">" $fasta|cut -d "|" -f 2|sort
+else
+	echo "No input file given. This script requires an uniprot fasta file as first argument."
+fi

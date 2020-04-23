@@ -1,4 +1,4 @@
-#!/usr/bin/python3
+#!/usr/bin/env python
 
 """
 Author: Saul Pierotti
@@ -24,7 +24,7 @@ import sys
 import math
 
 
-def parse_input(filepath):
+def __parse_input(filepath):
     with open(filepath) as filein:
         df = []
         for line in filein:
@@ -33,7 +33,7 @@ def parse_input(filepath):
     return df
 
 
-def get_confusion_mat(df, thr):
+def __get_confusion_mat(df, thr):
     true_pos, true_neg, false_pos, false_neg = 0, 0, 0, 0
     for row in df:
         if row[1] < thr and row[2] == 1:
@@ -48,8 +48,8 @@ def get_confusion_mat(df, thr):
     return confusion_mat
 
 
-def get_ACC(df, thr):
-    confusion_mat = get_confusion_mat(df, thr)
+def __get_ACC(df, thr):
+    confusion_mat = __get_confusion_mat(df, thr)
     t_pos = confusion_mat[0][0]
     t_neg = confusion_mat[1][0]
     f_pos = confusion_mat[0][1]
@@ -60,8 +60,8 @@ def get_ACC(df, thr):
     return ACC
 
 
-def get_MCC(df, thr):
-    confusion_mat = get_confusion_mat(df, thr)
+def __get_MCC(df, thr):
+    confusion_mat = __get_confusion_mat(df, thr)
     t_pos = confusion_mat[0][0]
     t_neg = confusion_mat[1][0]
     f_pos = confusion_mat[0][1]
@@ -75,18 +75,27 @@ def get_MCC(df, thr):
 
 
 def get_stats(filepath, thr, print_res=False):
-    df = parse_input(filepath)
-    confusion_mat = get_confusion_mat(df, thr)
-    ACC = get_ACC(df, thr)
-    MCC = get_MCC(df, thr)
+    """
+    Returns statistics about a model given in filepath for a given threshold.
+    It returns a tuple containing confusion matrix, accuracy, Matthews correlation
+    coefficient.
+    It requires math and sys.
+    """
+    df = __parse_input(filepath)
+    confusion_mat = __get_confusion_mat(df, thr)
+    ACC = __get_ACC(df, thr)
+    MCC = __get_MCC(df, thr)
     if print_res:
-        print(confusion_mat, ACC, MCC)
+        print("Confusion matrix:")
+        for line in confusion_mat:
+            print(line)
+        print("\nACC:", ACC, "MCC:", MCC)
     else:
         return confusion_mat, ACC, MCC
 
 
 if __name__ == "__main__":
-    print_res = True
-    input_file = sys.argv[1]
-    threshold_score = float(sys.argv[2])
-    get_stats(input_file, threshold_score, print_res)
+    __print_res = True
+    __input_file = sys.argv[1]
+    __threshold_score = float(sys.argv[2])
+    get_stats(__input_file, __threshold_score, __print_res)
