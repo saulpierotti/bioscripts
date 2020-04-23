@@ -14,8 +14,13 @@ It prints a log of the operation to STDOUT.
 
 import numpy as np
 import pandas as pd
-import sklearn as skl
+from sklearn import metrics
+from sklearn import utils
+import matplotlib.pyplot as plt
 import sys
+import seaborn as sns
+
+sns.set()
 
 
 def get_df(path):
@@ -103,17 +108,16 @@ def optimize_MCC(
         return best_thr
 
 
-def train_and_test(filepath, tolerance, test_prop=0.2, num_replicates=10):
+def train_and_test(df, tolerance, test_prop=0.2, num_replicates=10):
     train_report = []
-    df = get_df(dataset_path)
     for i in range(num_replicates):
         print("Training replicate", i + 1)
-        df = skl.utils.shuffle(df)
-        df_train, df_test = get_train_test(df, test_prop)
+        df = utils.shuffle(df)
+        df_train, df_cv = get_train_test(df, test_prop)
         start = np.log10(min(df["Feature"].values)) - 1
         stop = np.log10(max(df["Feature"].values)) + 1
         thr = optimize_MCC(df_train, start, stop, tolerance)
-        train_report.append([get_stats(df_test, thr), thr])
+        train_report.append([get_stats(df_cv, thr), thr])
     return train_report
 
 
@@ -121,9 +125,7 @@ def write_report(train_report):
     sep = "\t"
     with open("cross_val_report.dat", "w") as f:
         f.write(
-            "#"
-            + sep
-            + "tp"
+            "tp"
             + sep
             + "fp"
             + sep
@@ -159,8 +161,21 @@ def write_report(train_report):
             )
 
 
+def plot_roc_curve(test_set):
+    y_true = test_set["Class"].values
+    y_score = [-val for val in test_set["Feature"].values]
+    fpr, tpr, thresholds = metrics.roc_curve(y_true, y_score, pos_label=1)
+    roc_plt = sns.lineplot(x=fpr, y=tpr)
+    plt.ylabel("True Positive Rate")
+    plt.xlabel("False Positive Rate")
+    plt.savefig("roc_plot.png")
+    print("AUC for the ROC curve in the complete dataset:", metrics.auc(fpr, tpr))
+
+
 if __name__ == "__main__":
     dataset_path = sys.argv[1]
     tolerance = float(sys.argv[2])
-    train_report = train_and_test(dataset_path, tolerance)
+    df = get_df(dataset_path)
+    plot_roc_curve(df)
+    train_report = train_and_test(df, tolerance, 0.2, 1)
     write_report(train_report)
