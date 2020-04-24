@@ -36,13 +36,13 @@ def __parse_input(filepath):
 def __get_confusion_mat(df, thr):
     true_pos, true_neg, false_pos, false_neg = 0, 0, 0, 0
     for row in df:
-        if row[1] < thr and row[2] == 1:
+        if row[1] > thr and row[2] == 1:
             true_pos += 1
-        elif row[1] < thr and row[2] == 0:
+        elif row[1] > thr and row[2] == 0:
             false_pos += 1
-        elif row[1] >= thr and row[2] == 1:
+        elif row[1] <= thr and row[2] == 1:
             false_neg += 1
-        elif row[1] >= thr and row[2] == 0:
+        elif row[1] <= thr and row[2] == 0:
             true_neg += 1
     confusion_mat = ((true_pos, false_pos), (true_neg, false_neg))
     return confusion_mat
