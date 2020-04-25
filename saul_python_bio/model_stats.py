@@ -44,16 +44,16 @@ def __get_confusion_mat(df, thr):
             false_neg += 1
         elif row[1] >= thr and row[2] == 0:
             true_neg += 1
-    confusion_mat = ((true_pos, false_pos), (true_neg, false_neg))
+    confusion_mat = ((true_pos, false_pos), (false_neg, true_neg))
     return confusion_mat
 
 
 def __get_ACC(df, thr):
     confusion_mat = __get_confusion_mat(df, thr)
     t_pos = confusion_mat[0][0]
-    t_neg = confusion_mat[1][0]
     f_pos = confusion_mat[0][1]
-    f_neg = confusion_mat[1][1]
+    f_neg = confusion_mat[1][0]
+    t_neg = confusion_mat[1][1]
     above_frac = t_pos + t_neg
     below_frac = t_pos + t_neg + f_pos + f_neg
     ACC = above_frac / below_frac
@@ -63,9 +63,9 @@ def __get_ACC(df, thr):
 def __get_MCC(df, thr):
     confusion_mat = __get_confusion_mat(df, thr)
     t_pos = confusion_mat[0][0]
-    t_neg = confusion_mat[1][0]
     f_pos = confusion_mat[0][1]
-    f_neg = confusion_mat[1][1]
+    f_neg = confusion_mat[1][0]
+    t_neg = confusion_mat[1][1]
     above_frac = t_pos * t_neg - f_pos * f_neg
     below_frac = math.sqrt(
         (t_pos + f_pos) * (t_pos + f_neg) * (t_neg + f_pos) * (t_neg + f_neg)
