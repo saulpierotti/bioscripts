@@ -49,21 +49,31 @@ def get_stats(df, thr):
     return confusion_mat, ACC, MCC
 
 
+def get_wrong_predictions(df, thr):
+    false_positives = df.loc[(df["Class"] == 0) & (df["Feature"] < thr)]
+    false_negatives = df.loc[(df["Class"] == 1) & (df["Feature"] > thr)]
+    wrong_pred_report = false_positives, false_negatives
+    return wrong_pred_report
+
+
 def thr_explore(df, start_thr=-100, stop_thr=1, step_thr=1):
-    MCC_list, exp_list = [], []
+    MCC_list, exp_list, ACC_list = [], [], []
+    print("Threshold\tACC\tMCC")
     for exp in range(start_thr, stop_thr, step_thr):
         thr = 10 ** exp
         y_true = df["Class"].values
         y_pred = [1 if (value < thr) else 0 for value in df["Feature"].values]
         MCC = metrics.matthews_corrcoef(y_true, y_pred)
+        ACC = metrics.accuracy_score(y_true, y_pred)
         MCC_list.append(MCC)
+        ACC_list.append(ACC)
         exp_list.append(exp)
-        print(thr, MCC)
-    return MCC_list, exp_list
+        print(thr, ACC, MCC)
+    return MCC_list, exp_list, ACC_list
 
 
 def get_best_thr(df, start_thr=-100, stop_thr=1, step_thr=1):
-    MCC_list, exp_list = thr_explore(df, start_thr, stop_thr, step_thr)
+    MCC_list, exp_list, ACC_list = thr_explore(df, start_thr, stop_thr, step_thr)
     thr_list = [10 ** exp for exp in exp_list]
     best_MCC = -2
     for i in range(len(MCC_list)):
@@ -75,7 +85,7 @@ def get_best_thr(df, start_thr=-100, stop_thr=1, step_thr=1):
     best_exp = np.mean(best_exp_list)
     best_thr = 10 ** best_exp
     print("Selected threshold:", best_thr)
-    return best_thr, thr_list, MCC_list
+    return best_thr, thr_list, MCC_list, ACC_list
 
 
 def get_roc_auc(df):
@@ -86,8 +96,9 @@ def get_roc_auc(df):
     return fpr, tpr, auc
 
 
-def train_and_test(df, numsplits=5, start_thr=-100, stop_thr=1, step_thr=1):
-    (train_report, all_MCCs, test_auc_list, test_tpr_list, test_fpr_list,) = (
+def train_and_test(df, numsplits, rand_seed, start_thr=-100, stop_thr=1, step_thr=1):
+    (train_report, all_MCCs, all_ACCs, test_auc_list, test_tpr_list, test_fpr_list,) = (
+        [],
         [],
         [],
         [],
@@ -99,7 +110,7 @@ def train_and_test(df, numsplits=5, start_thr=-100, stop_thr=1, step_thr=1):
     set_indeces_iterator = model_selection.StratifiedKFold(  # creates an iterator that at each iteration
         n_splits=numsplits,  # returns 2 arrays of indeces for splitting the fold
         shuffle=True,
-        random_state=1,
+        random_state=rand_seed,
     ).split(
         df, y=df["Class"]  # the y makes it respect the stratification of the classes
     )
@@ -107,20 +118,25 @@ def train_and_test(df, numsplits=5, start_thr=-100, stop_thr=1, step_thr=1):
         # training
         print("\nTraining on fold", j + 1)
         df_train, df_test = get_train_test(df, set_indeces_iterator, numsplits)
-        thr, thr_list, MCC_list = get_best_thr(df_train, start_thr, stop_thr, step_thr)
+        thr, thr_list, MCC_list, ACC_list = get_best_thr(
+            df_train, start_thr, stop_thr, step_thr
+        )
         stats_train = get_stats(df_train, thr)
         stats_test = get_stats(df_test, thr)
-        train_report.append((stats_test[0], stats_test[1], stats_test[2], thr))
         # testing
         train_roc_auc = get_roc_auc(df_train)
         test_roc_auc = get_roc_auc(df_test)
         test_fpr_list += list(test_roc_auc[0])  # for roc plot
         test_tpr_list += list(test_roc_auc[1])  # for roc plot
         test_auc_list.append(test_roc_auc[2])  # for roc plot
+        train_report.append(
+            (stats_test[0], stats_test[1], stats_test[2], thr, test_roc_auc[2])
+        )
         wrong_pred_report = get_wrong_predictions(df_test, thr)
         false_positives = pd.concat([false_positives, wrong_pred_report[0]])
         false_negatives = pd.concat([false_negatives, wrong_pred_report[1]])
         all_MCCs += MCC_list  # for MCC-E value plot
+        all_ACCs += ACC_list  # for ACC-E value plot
         print("\nPerformance on fold", j + 1)
         print("    Training set\tTest set")
         print("AUC", train_roc_auc[2], test_roc_auc[2])
@@ -133,13 +149,15 @@ def train_and_test(df, numsplits=5, start_thr=-100, stop_thr=1, step_thr=1):
         print("\nFalse negatives in the test set")
         print(wrong_pred_report[1].to_string(index=False))
     wrong_pred_report_final = false_positives, false_negatives
-    thr_MCC_report = (thr_list * numsplits, all_MCCs)
+    thr_MCC_report = (thr_list * numsplits, all_MCCs, all_ACCs)
     roc_curve_report = (test_auc_list, test_tpr_list, test_fpr_list)
     return train_report, thr_MCC_report, roc_curve_report, wrong_pred_report_final
 
 
 def get_final_stats(train_report):
     final_stats = {}
+    list_AUC = [train[4] for train in train_report]
+    arr_AUC = np.array(list_AUC)
     list_ACC = [train[1] for train in train_report]
     arr_ACC = np.array(list_ACC)
     list_MCC = [train[2] for train in train_report]
@@ -152,6 +170,8 @@ def get_final_stats(train_report):
     fp_tot = sum([cm[0][1] for cm in list_cm])
     fn_tot = sum([cm[1][0] for cm in list_cm])
     tn_tot = sum([cm[1][1] for cm in list_cm])
+    final_stats["avg_AUC"] = np.mean(arr_AUC)
+    final_stats["std_AUC"] = np.std(arr_AUC)
     final_stats["avg_ACC"] = np.mean(arr_ACC)
     final_stats["std_ACC"] = np.std(arr_ACC)
     final_stats["avg_MCC"] = np.mean(arr_MCC)
@@ -209,8 +229,12 @@ def get_final_report(train_report, wrong_pred_report, argv_index):
     final_report += (
         "---"
         + "\nAverage AUC: "
-        + str(final_stats["avg_ACC"])
+        + str(final_stats["avg_AUC"])
         + "\nStandard deviation AUC: "
+        + str(final_stats["std_AUC"])
+        + "\nAverage ACC: "
+        + str(final_stats["avg_ACC"])
+        + "\nStandard deviation ACC: "
         + str(final_stats["std_ACC"])
         + "\nAverage MCC: "
         + str(final_stats["avg_MCC"])
@@ -235,41 +259,75 @@ def get_final_report(train_report, wrong_pred_report, argv_index):
 
 
 def plot_roc_curve(roc_curve_report_list):
-    i = 1
-    for roc_curve_report in roc_curve_report_list:
-        auc_list, tpr_list, fpr_list = roc_curve_report
-        # auc_arr = np.array(auc_list)
-        # avg_auc = np.mean(auc_arr)
-        # auc_sd = np.std(auc_arr)
+    for i in range(len(sys.argv) - 1):
+        auc_list, tpr_list, fpr_list = roc_curve_report_list[i]
+        is_beginning = True
+        tpr_list = tpr_list[-len(fpr_list) :]
+        tpr_list.insert(0, 0.0)
+        fpr_list.insert(0, 0.0)
+        random_tpr_list = [val for val in fpr_list]
         sns.lineplot(
-            x=fpr_list, y=tpr_list, markers=True, color=sns.color_palette()[i - 1]
+            x=fpr_list,
+            y=tpr_list,
+            markers=True,
+            color=sns.color_palette()[i],
+            estimator=None,
         )
+        plt.plot(fpr_list, random_tpr_list, color="r", ls="dashed")
         plt.ylabel("True Positive Rate")
         plt.xlabel("False Positive Rate")
-        plt.savefig("roc_plot" + sys.argv[i] + ".png")
+        plt.legend(labels=[sys.argv[i + 1] + " E Value ROC", "Random Classifier"])
+        plt.savefig("roc_plot" + sys.argv[i + 1] + ".png")
         plt.clf()
-        i += 1
 
 
-def plot_thr_MCC(thr_MCC_report_list, final_stats_list):
-    for thr_MCC_report in thr_MCC_report_list:
-        sns.lineplot(x=thr_MCC_report[0], y=thr_MCC_report[1], markers=True)
+def plot_thr_ACC(thr_MCC_report_list, final_stats_list):
+    best_thr, df_list, label_list = [], [], []
     for i in range(len(sys.argv) - 1):
-        best_thr = final_stats_list[i]["avg_evalue"]
-        plt.axvline(best_thr, color=sns.color_palette()[i], ls="--")
+        df = pd.DataFrame(thr_MCC_report_list[i]).T
+        df.columns = ["E value", "MCC", "ACC"]
+        df["Filename"] = sys.argv[i + 1]
+        df_list.append(df)
+        best_thr.append(final_stats_list[i]["avg_evalue"])
+        label_list.append(sys.argv[i + 1])
+    df_all = pd.concat(df_list)
+    the_plot = sns.lineplot(
+        data=df_all, x="E value", y="ACC", hue="Filename", legend=False
+    )
+    plt.xlabel("Threshold (E Value)")
+    plt.ylabel("ACC")
+    plt.legend(labels=label_list)
     plt.semilogx()
-    plt.ylabel("MCC")
-    plt.xlabel("Threshold (E value)")
-    plt.legend(labels=sys.argv[1:])
-    plt.savefig("evalue_MCC_plot.png")
+    plt.savefig("evalue_ACC_plot.png")
+    for i in range(len(sys.argv) - 1):
+        plt.axvline(best_thr[i], color=sns.color_palette()[i], ls="dotted")
+    plt.savefig("evalue_ACC_plot_thr.png")
     plt.clf()
 
 
-def get_wrong_predictions(df, thr):
-    false_positives = df.loc[(df["Class"] == 0) & (df["Feature"] < thr)]
-    false_negatives = df.loc[(df["Class"] == 1) & (df["Feature"] > thr)]
-    wrong_pred_report = false_positives, false_negatives
-    return wrong_pred_report
+def plot_thr_MCC(thr_MCC_report_list, final_stats_list):
+    best_thr, df_list, label_list = [], [], []
+    for i in range(len(sys.argv) - 1):
+        df = pd.DataFrame(thr_MCC_report_list[i]).T
+        df.columns = ["E value", "MCC", "ACC"]
+        df["Filename"] = sys.argv[i + 1]
+        df_list.append(df)
+        best_thr.append(final_stats_list[i]["avg_evalue"])
+        label_list.append(sys.argv[i + 1])
+    df_all = pd.concat(df_list)
+    the_plot = sns.lineplot(
+        x="E value", y="MCC", data=df_all, hue="Filename", legend=False
+    )
+    plt.semilogx()
+    plt.xlabel("Threshold (E Value)")
+    plt.ylabel("MCC")
+    plt.legend(labels=label_list)
+    plt.savefig("evalue_MCC_plot.png")
+    label_list = []
+    for i in range(len(sys.argv) - 1):
+        plt.axvline(best_thr[i], color=sns.color_palette()[i], ls="dotted")
+    plt.savefig("evalue_MCC_plot_thr.png")
+    plt.clf()
 
 
 def plot_scatter_all_data(df_list, final_stats_list):
@@ -285,32 +343,37 @@ def plot_scatter_all_data(df_list, final_stats_list):
     )
     the_plot.set_xticklabels(["True negatives", "True positives"])
     the_plot._legend.set_title("")
-    plt.ylabel("E value")
+    plt.ylabel("E Value")
     plt.xlabel("")
     plt.ylim([min(df_all["Feature"].values) / 1e2, max(df_all["Feature"].values) * 1e2])
     plt.semilogy()
     plt.gca().invert_yaxis()
     plt.savefig("scatterplot_all_data.png")
+    for i in range(len(sys.argv) - 1):
+        plt.axhline(best_thr[i], color=sns.color_palette()[i], ls="dotted")
+    plt.savefig("scatterplot_all_data_thr.png")
     plt.clf()
     the_plot_zoomed = sns.catplot(
         x="Class", y="Feature", data=df_all, kind="strip", dodge=True, hue="Filename"
     )
     the_plot_zoomed.set_xticklabels(["True negatives", "True positives"])
     the_plot_zoomed._legend.set_title("")
-    for i in range(len(sys.argv) - 1):
-        plt.axhline(best_thr[i], color=sns.color_palette()[i], ls="--")
-    plt.ylabel("E value")
+    plt.ylabel("E Value")
     plt.xlabel("")
     # plt.ylim([1e-15, 1e-5])
     plt.ylim([1e-30, 1e0])
     plt.semilogy()
     plt.gca().invert_yaxis()
     plt.savefig("scatterplot_all_data_zoomed.png")
+    for i in range(len(sys.argv) - 1):
+        plt.axhline(best_thr[i], color=sns.color_palette()[i], ls="dotted")
+    plt.savefig("scatterplot_all_data_zoomed_thr.png")
     plt.clf()
 
 
 def main():
     numsplits = 5
+    rand_seed = 1
     start_thr = -30
     stop_thr = 1
     step_thr = 1
@@ -334,7 +397,7 @@ def main():
             thr_MCC_report,
             roc_curve_report,
             wrong_pred_report,
-        ) = train_and_test(df, numsplits, start_thr, stop_thr, step_thr)
+        ) = train_and_test(df, numsplits, rand_seed, start_thr, stop_thr, step_thr)
         final_stats = get_final_stats(train_report)
         final_report = get_final_report(train_report, wrong_pred_report, i)
         df_list.append(df)
@@ -344,6 +407,7 @@ def main():
         final_stats_list.append(final_stats)
     plot_scatter_all_data(df_list, final_stats_list)
     plot_roc_curve(roc_curve_report_list)
+    plot_thr_ACC(thr_MCC_report_list, final_stats_list)
     plot_thr_MCC(thr_MCC_report_list, final_stats_list)
     write_report(final_report_list)
 
