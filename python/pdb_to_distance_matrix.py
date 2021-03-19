@@ -4,9 +4,16 @@
 Author: Saul Pierotti
 Mail: saulpierotti.bioinfo@gmail.com
 Last updated: 19/03/2021
+
+This script takes as input a mmcif file and a chain id.
+It computes the pairwise distance matrix of the alpha carbons and
+saves it in a xz compressed joblib dump.
+It can optionally also take a list of pdb ids and do the same
+action for all the files with such names in the current directory.
 """
 
 import argparse
+import os
 
 import joblib
 import numpy as np
@@ -25,9 +32,12 @@ def get_distance_matrix(mmcif_file, chain_id):
     structure = parser.get_structure("_", mmcif_file)
     out = {"residue": [], "coordinates": [], "resseq": []}
 
+    matching_chains = 0
+
     for chain in structure.get_chains():
         if chain.id != chain_id:
             continue
+        matching_chains += 1
 
         for residue in chain.get_residues():
             het_field = residue.id[0]
@@ -37,6 +47,7 @@ def get_distance_matrix(mmcif_file, chain_id):
             out["residue"].append(residue.resname)
             out["coordinates"].append(residue["CA"].get_coord())
             out["resseq"].append(residue.id[1])
+    assert matching_chains == 1
 
     out["coordinates"] = np.array(out["coordinates"])
     # the Minkowski 2-norm is the euclidean distance
@@ -53,39 +64,67 @@ def get_distance_matrix(mmcif_file, chain_id):
     return out
 
 
+def save_out_dict(mmcif_file, chain_id):
+    """
+    Takes a mmcif file and a chain id. Calculate the distance matrix and other
+    information and store the result as a dictionary in a joblib dump.
+    """
+    assert os.path.isfile(mmcif_file)
+    assert mmcif_file.endswith(".cif")
+    assert len(chain_id) == 1
+    outfile = mmcif_file[:-4] + "_" + chain_id + ".distance_matrix.joblib.xz"
+    out_dict = get_distance_matrix(mmcif_file, chain_id)
+    joblib.dump(out_dict, outfile)
+
+
+def main(args):
+    """
+    Main function
+    """
+
+    if args.id_list:
+        assert os.path.isfile(args.input_file)
+        assert args.input_file.endswith(".csv")
+
+        with open(args.input_file) as handle:
+            inputs = [line.rstrip().split(",") for line in handle]
+
+        for pdb_id, chain_id in inputs:
+            mmcif_file = pdb_id + ".cif"
+            save_out_dict(mmcif_file, chain_id)
+    else:
+        save_out_dict(args.input_file, args.chain_id)
+
+
 def parse_arguments():
     """
     Parse command line arguments.
     """
     parser = argparse.ArgumentParser(
         description="""
-            This script takes as input a file containing a sequence profile in
-            as a saved numpy array with .profile.npy extension or a text file
-            with a list of filenames for sequence profiles. It uses an svm
-            model, provided to the script as a joblib dump, for predicting the
-            secondary structure of the protein sequence(s) provided. It
-            produces in output a fasta-like file with extension .pred.fa
-            containing the predicted conformations.
-        """
+            This script takes as input a mmcif file and a chain id.
+            It computes the pairwise distance matrix of the alpha carbons and
+            saves it in a xz compressed joblib dump.
+            It can optionally also take a csv list of pdb ids and chain ids and
+            do the same action for all the files with such names in the current
+            directory.
+            """
     )
     parser.add_argument(
         "input_file",
         type=str,
-        help="""
-        a fasta file with a single sequence (default) or a text file containing
-        a list of fasta filenames (with --id_list)
-        """,
+        help="the mmcif file to use or a csv of pdb ids and chain ids",
     )
     parser.add_argument(
-        "svm_model",
+        "--chain_id",
         type=str,
-        help="a trained svm model saved as a joblib dump",
+        help="the chain id to consider (leave empty if using --id_list)",
     )
     parser.add_argument(
         "--id_list",
         help="""
-            interpret input_file as a text file containing a list of fasta
-            files (one per row) instead that considering it a fasta file
+            interpret input_file as a csv file containing a list of chains and
+            pdb ids instead than as a mmcif file
         """,
         action="store_true",
     )
@@ -97,4 +136,4 @@ def parse_arguments():
 
 if __name__ == "__main__":
     args = parse_arguments()
-    main(args.input_file, args.svm_model, args.id_list)
+    main(args)
