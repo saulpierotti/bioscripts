@@ -21,13 +21,14 @@ from Bio import PDB, SeqUtils
 from scipy import spatial
 
 
-def get_distance_matrix(mmcif_file, chain_id):
+def get_distance_matrix(pdb_id, chain_id):
     """
     Given a protein structure in mmcif format and a chain id, extract the
     residue type, the coordinate of each residue, and the resseq id. Compute
     all the pairwise euclidean distances among residues. Returns a dictionary
     containing all of these data.
     """
+    mmcif_file = pdb_id + ".cif"
     parser = PDB.MMCIFParser()
     structure = parser.get_structure("_", mmcif_file)
     out = {"residue": [], "coordinates": [], "resseq": []}
@@ -50,6 +51,7 @@ def get_distance_matrix(mmcif_file, chain_id):
     assert matching_chains == 1
 
     out["coordinates"] = np.array(out["coordinates"])
+    out["resseq"] = np.array(out["resseq"])
     # the Minkowski 2-norm is the euclidean distance
     out["distance_matrix"] = spatial.distance_matrix(
         out["coordinates"], out["coordinates"], p=2
@@ -60,20 +62,22 @@ def get_distance_matrix(mmcif_file, chain_id):
             for r in out["residue"]
         ]
     )
+    out["pdb_id"] = pdb_id
+    out["chain_id"] = chain_id
 
     return out
 
 
-def save_out_dict(mmcif_file, chain_id):
+def save_out_dict(pdb_id, chain_id):
     """
     Takes a mmcif file and a chain id. Calculate the distance matrix and other
     information and store the result as a dictionary in a joblib dump.
     """
+    mmcif_file = pdb_id + ".cif"
     assert os.path.isfile(mmcif_file)
-    assert mmcif_file.endswith(".cif")
     assert len(chain_id) == 1
-    outfile = mmcif_file[:-4] + "_" + chain_id + ".distance_matrix.joblib.xz"
-    out_dict = get_distance_matrix(mmcif_file, chain_id)
+    outfile = pdb_id + "_" + chain_id + ".distance_matrix_dict.joblib.xz"
+    out_dict = get_distance_matrix(pdb_id, chain_id)
     joblib.dump(out_dict, outfile)
 
 
@@ -90,8 +94,7 @@ def main(args):
             inputs = [line.rstrip().split(",") for line in handle]
 
         for pdb_id, chain_id in inputs:
-            mmcif_file = pdb_id + ".cif"
-            save_out_dict(mmcif_file, chain_id)
+            save_out_dict(pdb_id, chain_id)
     else:
         save_out_dict(args.input_file, args.chain_id)
 
@@ -129,11 +132,11 @@ def parse_arguments():
         action="store_true",
     )
 
-    arguments = parser.parse_args()
+    args = parser.parse_args()
 
-    return arguments
+    return args
 
 
 if __name__ == "__main__":
-    args = parse_arguments()
-    main(args)
+    ARGS = parse_arguments()
+    main(ARGS)
