@@ -1,9 +1,0 @@
-#!/bin/bash
-#
-# Author: Saul Pierotti
-# Mail: saulpierotti.bioinfo@gmail.com
-# Last updated: 17/04/2020
-#
-# Docstring goes here
-
-echo "I am a bash script"
