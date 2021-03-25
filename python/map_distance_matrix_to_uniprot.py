@@ -5,28 +5,11 @@ Author: Saul Pierotti
 Mail: saulpierotti.bioinfo@gmail.com
 Last updated: 22/03/2021
 
-This script takes as input:
-- a joblib dump of a dictionary containing a distance matrix for a pdb file and
-  other data (output of ./pdb_to_distance_matrix.py)
-- a csv file containing sifts mappings from pdb to uniprot
-
-It expects in the current directory:
-- a fasta file containing a single uniprot sequence (must be named
-  uniprot_id.fasta, where uniprot_id is the id that can be seen in the sifts
-  mapping of pdb_id,chain_id)
-
-It produces in output:
-- a joblib compressed dump of a numpy matrix containing the pdb distance matrix
-  mapped to the uniprot sequence. Missing positions are occupied by numpy.nan
-
-The script can also operate in batch mode using the --id_list flag. In this
-case it expects in input:
-- a csv file containing pdb_id,chain_id for each of the inputs to process
-- a csv file containing sifts mappings from pdb to uniprot
-
-The output is the same (but one output for each input in the csv file).
-It expects to find in the current folder the relevant files as for single
-inputs.
+Given the output of the script ./pdb_to_distance_matrix.py, a sifts mapping,
+and a uniprot sequence (read implicitly), produces a mapped version of the
+distance matrix and saves it in a joblib dump. The dump contains a dictionary
+with the distance matrix itself and the uniprot sequence. It expects a file
+named uniprot_id.seq for each uniprot_id in the sifts mapping.
 """
 
 import argparse
@@ -38,12 +21,12 @@ import pandas as pd
 from Bio import SeqIO
 
 
-def map_inner_routine(d_mat_raw, indexes_zip, uniprot_seq, pdb_seq):
+def map_d_mat(d_mat_raw, indexes_zip, uniprot_seq, pdb_seq):
     """
     Map the distance matrix d_mat_raw to the sequence uniprot_seq using the
     indexes tuples indexes_zip for marking the represented regions.
     Returns a numpy array containing the mapped distance matrix where
-    the indeces correspond to uniprot positions - 1.
+    the indexes correspond to uniprot positions - 1.
     """
     d_mat_mapped = np.empty((len(uniprot_seq), len(uniprot_seq)))
     d_mat_mapped[:, :] = np.nan
@@ -69,13 +52,12 @@ def map_inner_routine(d_mat_raw, indexes_zip, uniprot_seq, pdb_seq):
     return d_mat_mapped
 
 
-def map_distance_matrix(d_mat_file, sifts_df):
+def get_uniprot_seq(sifts_df, d_mat_dict):
     """
-    Map a distance matrix contained in d_mat_file using the mapping reported in
-    sifts_df. The actual mapping is performed by calling map_inner_routine().
+    Reads from sifts_df which uniprot_id corresponds to the pdb chain in
+    d_mat_dict and reads it from the current directory. It expects a file with
+    the name uniprot_id.fasta in the current directory.
     """
-    out = dict()
-    d_mat_dict = joblib.load(d_mat_file)
     uniprot_id_set = set(
         sifts_df[sifts_df.PDB == d_mat_dict["pdb_id"]].SP_PRIMARY
     )
@@ -87,53 +69,16 @@ def map_distance_matrix(d_mat_file, sifts_df):
             "fasta",
         )
     ).seq
-    curr_df = sifts_df[
-        (sifts_df.PDB == d_mat_dict["pdb_id"])
-        & (sifts_df.CHAIN == d_mat_dict["chain_id"])
-    ]
-    begin_indexes = list(curr_df.SP_BEG - 1)
-    end_indexes = list(curr_df.SP_END)
-    _ = begin_indexes.sort(), end_indexes.sort()
-    out["distance_matrix"] = map_inner_routine(
-        d_mat_dict["distance_matrix"],
-        # need to call list since zip can be used only for 1 iteration
-        list(zip(begin_indexes, end_indexes)),
-        uniprot_seq,
-        d_mat_dict["sequence"],
-    )
-    out["uniprot_seq"] = np.array(uniprot_seq)
 
-    return out
+    return uniprot_seq
 
 
-def save_out_mat(d_mat_file, sifts_df):
+def get_sifts_df(db_file):
     """
-    Call the function that maps the distance matrix and save the output to a
-    joblib dump. This function manages the handling of filenames in input and
-    output for a single input.
+    Wrapper for pandas.read_csv with custom parameters
     """
-    assert os.path.isfile(d_mat_file)
-    assert d_mat_file.endswith(".distance_matrix_dict.joblib.xz")
-    d_mat_file_aslist = d_mat_file.split(".")
-    outfile = ".".join(
-        d_mat_file_aslist[:-3]
-        + ["uniprot_distance_matrix"]
-        + d_mat_file_aslist[-2:]
-    )
-    out = map_distance_matrix(d_mat_file, sifts_df)
-    joblib.dump(out, outfile)
-
-
-def main(args):
-    """
-    Load the sifts mapping dataframe, determine if --id_list has been called
-    and call the function that dumps the output to the output file as requested
-    on a single file or on all the files on the input list.
-    """
-    assert os.path.isfile(args.sifts_mapping)
-    assert args.sifts_mapping.endswith(".csv")
     sifts_df = pd.read_csv(
-        args.sifts_mapping,
+        db_file,
         names=[
             "PDB",
             "CHAIN",
@@ -147,76 +92,84 @@ def main(args):
         ],
     )
 
-    if args.id_list:
-        assert os.path.isfile(args.input_file)
-        assert args.input_file.endswith(".csv")
+    return sifts_df
 
-        with open(args.input_file) as handle:
-            inputs = [line.rstrip().split(",") for line in handle]
 
-        for pdb_id, chain_id in inputs:
-            d_mat_file = (
-                pdb_id + "_" + chain_id + ".distance_matrix_dict.joblib.xz"
-            )
-            save_out_mat(d_mat_file, sifts_df)
-    else:
-        save_out_mat(args.input_file, sifts_df)
+def get_out_dict(d_mat, sifts_df, uniprot_seq):
+    """
+    Map a distance matrix contained in d_mat_file using the mapping reported in
+    sifts_df. It expects the uniprot sequences to be in fasta files called .
+    """
+    out = dict()
+    curr_df = sifts_df[
+        (sifts_df.PDB == d_mat["pdb_id"])
+        & (sifts_df.CHAIN == d_mat["chain_id"])
+    ]
+    begin_indexes = list(curr_df.SP_BEG - 1)
+    end_indexes = list(curr_df.SP_END)
+    _ = begin_indexes.sort(), end_indexes.sort()
+    out["distance_matrix"] = map_d_mat(
+        d_mat["distance_matrix"],
+        # need to call list since zip can be used only for 1 iteration
+        list(zip(begin_indexes, end_indexes)),
+        uniprot_seq,
+        d_mat["sequence"],
+    )
+    out["uniprot_seq"] = np.array(uniprot_seq)
+
+    return out
+
+
+def main(args):
+    """
+    Main function
+    """
+    assert os.path.isfile(args.db)
+    assert args.db.endswith(".csv")
+    assert os.path.isfile(args.i)
+    assert args.i.endswith("pdb_distance_matrix.joblib.xz")
+    assert args.o.endswith("uniprot_distance_matrix.joblib.xz")
+    assert not os.path.isfile(args.o)
+    sifts_df = get_sifts_df(args.db)
+    d_mat = joblib.load(args.i)
+    uniprot_seq = get_uniprot_seq(sifts_df, d_mat)
+    out = get_out_dict(d_mat, sifts_df, uniprot_seq)
+    joblib.dump(out, args.o)
 
 
 def parse_arguments():
     """
     Parse command line arguments.
     """
-    parser = argparse.ArgumentParser(
-        description="""
-This script takes as input:
-- a joblib dump of a dictionary containing a distance matrix for a pdb file and
-  other data (output of ./pdb_to_distance_matrix.py)
-- a csv file containing sifts mappings from pdb to uniprot
+    description = " ".join(__doc__.splitlines()[4:])
 
-It expects in the current directory:
-- a fasta file containing a single uniprot sequence (must be named
-  uniprot_id.fasta, where uniprot_id is the id that can be seen in the sifts
-  mapping of pdb_id,chain_id)
-
-It produces in output:
-- a joblib compressed dump of a numpy matrix containing the pdb distance matrix
-  mapped to the uniprot sequence. Missing positions are occupied by numpy.nan
-
-The script can also operate in batch mode using the --id_list flag. In this
-case it expects in input:
-- a csv file containing pdb_id,chain_id for each of the inputs to process
-- a csv file containing sifts mappings from pdb to uniprot
-
-The output is the same (but one output for each input in the csv file).
-It expects to find in the current folder the relevant files as for single
-inputs.
-            """
-    )
+    epilog = ", ".join(__doc__.splitlines()[1:4])
+    parser = argparse.ArgumentParser(description=description, epilog=epilog)
     parser.add_argument(
-        "input_file",
+        "-i",
+        metavar="<file>",
         type=str,
-        help="""
-        the output of ./pdb_to_distance_matrix.py for pdb_id. If --id_list is
-        specified, then this should instead be a csv file containing
-        pdb_id,chain_id for each of the inputs to process
-        """,
+        help="the output of the script ./pdb_to_distance_matrix.py",
+        required=True,
     )
     parser.add_argument(
-        "sifts_mapping",
+        "-o",
+        metavar="<file>",
+        type=str,
+        help="""the file where to save the joblib dump of the uniprot-mapped
+        distance matrix""",
+        required=True,
+    )
+    parser.add_argument(
+        "-db",
+        metavar="<file>",
         type=str,
         help="""
         a csv file containing the uniprot to pdb mappings. There should
-        be no header lines
+        be no header lines. It can be obtained from
+        ftp://ftp.ebi.ac.uk/pub/databases/msd/sifts/flatfiles/csv/uniprot_segments_observed.csv.gz
         """,
-    )
-    parser.add_argument(
-        "--id_list",
-        help="""
-            interpret input_file as a csv file containing a list of chains and
-            pdb ids instead than as a mmcif file
-        """,
-        action="store_true",
+        required=True,
     )
 
     args = parser.parse_args()

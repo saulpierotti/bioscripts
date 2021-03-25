@@ -21,14 +21,14 @@ from Bio import PDB, SeqUtils
 from scipy import spatial
 
 
-def get_distance_matrix(pdb_id, chain_id):
+def get_distance_matrix(mmcif_file, chain_id):
     """
     Given a protein structure in mmcif format and a chain id, extract the
     residue type, the coordinate of each residue, and the resseq id. Compute
     all the pairwise euclidean distances among residues. Returns a dictionary
     containing all of these data.
     """
-    mmcif_file = pdb_id + ".cif"
+
     parser = PDB.MMCIFParser()
     structure = parser.get_structure("_", mmcif_file)
     out = {"residue": [], "coordinates": [], "resseq": []}
@@ -62,74 +62,52 @@ def get_distance_matrix(pdb_id, chain_id):
             for r in out["residue"]
         ]
     )
-    out["pdb_id"] = pdb_id
+    out["pdb_id"] = mmcif_file.split(".")[0]
     out["chain_id"] = chain_id
 
     return out
-
-
-def save_out_dict(pdb_id, chain_id):
-    """
-    Takes a mmcif file and a chain id. Calculate the distance matrix and other
-    information and store the result as a dictionary in a joblib dump.
-    """
-    mmcif_file = pdb_id + ".cif"
-    assert os.path.isfile(mmcif_file)
-    assert len(chain_id) == 1
-    outfile = pdb_id + "_" + chain_id + ".distance_matrix_dict.joblib.xz"
-    out_dict = get_distance_matrix(pdb_id, chain_id)
-    joblib.dump(out_dict, outfile)
 
 
 def main(args):
     """
     Main function
     """
-
-    if args.id_list:
-        assert os.path.isfile(args.input_file)
-        assert args.input_file.endswith(".csv")
-
-        with open(args.input_file) as handle:
-            inputs = [line.rstrip().split(",") for line in handle]
-
-        for pdb_id, chain_id in inputs:
-            save_out_dict(pdb_id, chain_id)
-    else:
-        save_out_dict(args.input_file, args.chain_id)
+    assert os.path.isfile(args.i)
+    assert args.i.endswith(".cif")
+    assert len(args.c) == 1
+    assert args.o.endswith(".pdb_distance_matrix.joblib.xz")
+    assert not os.path.isfile(args.o)
+    out_dict = get_distance_matrix(args.i, args.c)
+    joblib.dump(out_dict, args.o)
 
 
 def parse_arguments():
     """
     Parse command line arguments.
     """
-    parser = argparse.ArgumentParser(
-        description="""
-            This script takes as input a mmcif file and a chain id.
-            It computes the pairwise distance matrix of the alpha carbons and
-            saves it in a xz compressed joblib dump.
-            It can optionally also take a csv list of pdb ids and chain ids and
-            do the same action for all the files with such names in the current
-            directory.
-            """
-    )
+    description = " ".join(__doc__.splitlines()[4:])
+    epilog = ", ".join(__doc__.splitlines()[1:4])
+    parser = argparse.ArgumentParser(description=description, epilog=epilog)
     parser.add_argument(
-        "input_file",
+        "-i",
         type=str,
-        help="the mmcif file to use or a csv of pdb ids and chain ids",
+        help="the mmcif file to be used",
+        metavar="<file>",
+        required=True,
     )
     parser.add_argument(
-        "--chain_id",
+        "-o",
         type=str,
-        help="the chain id to consider (leave empty if using --id_list)",
+        help="the file where to save the joblib dump of the distance matrix",
+        metavar="<file>",
+        required=True,
     )
     parser.add_argument(
-        "--id_list",
-        help="""
-            interpret input_file as a csv file containing a list of chains and
-            pdb ids instead than as a mmcif file
-        """,
-        action="store_true",
+        "-c",
+        type=str,
+        help="the pdb chain id to be considered",
+        metavar="<letter>",
+        required=True,
     )
 
     args = parser.parse_args()
