@@ -21,37 +21,47 @@ from Bio.Data import IUPACData
 from sklearn.preprocessing import OrdinalEncoder
 
 
-def get_profile(align_vec, pseudocount=0):
+def get_profile(align_vec, enc, pseudocount=0):
     """
     Takes in input a multiple sequence alignment in a ordinally encoded numpy
-    array and produces a sequence profile in output, optionally with a
-    pseudocount.
+    array and a fittend encoder. Produces a sequence profile in output,
+    optionally with a pseudocount.
     """
     profile = []
+    symbols = np.array(enc.categories_).flatten()
+    assert len(symbols) == len(SYMBOLS)
+    categories = enc.transform(np.expand_dims(symbols, axis=1)).flatten()
+    assert np.all(categories.flatten() == range(len(SYMBOLS)))
 
     for column in align_vec.T:
         # add 1 instance of every possible category so that all the counts have the same lenght
-        column = np.concatenate([column, range(len(SYMBOLS))])
-        _, counts = np.unique(column, return_counts=True)
+        column = np.concatenate([column, categories.flatten()])
+        column_categories, counts = np.unique(column, return_counts=True)
+        assert np.all(column_categories == range(len(SYMBOLS)))
         # remove the artificial count and add the pseudocount
         counts = counts - 1 + pseudocount
         frequencies = counts / counts.sum()
         profile.append(frequencies)
 
-    return np.array(profile).T
+    return np.array(profile).T, categories
 
 
-def get_align_vec(align):
+def get_align_vec(align, symbols):
     """
     Return a ordinally-encoded vector representing the multiple sequence
     alignment given in input
     """
-    categories = np.array(
-        [np.array(list(SYMBOLS)) for _ in range(align.get_alignment_length())]
-    ).T
-    align_vec = OrdinalEncoder().fit(categories).transform(np.array(align))
+    enc = OrdinalEncoder()
+    enc.fit(symbols)
 
-    return align_vec
+    align_vec = []
+
+    for column_in in align.T:
+        column_out = enc.transform(np.expand_dims(column_in, axis=1)).flatten()
+        align_vec.append(column_out)
+    align_vec = np.array(align_vec).T
+
+    return align_vec, enc
 
 
 def main(args):
@@ -64,10 +74,15 @@ def main(args):
     assert args.o.endswith("profile.joblib.xz")
     assert not os.path.isfile(args.o)
 
-    align = AlignIO.read(args.i, "fasta")
-    align_vec = get_align_vec(align)
-    profile = get_profile(align_vec)
-    joblib.dump(profile, args.o)
+    align = np.array(AlignIO.read(args.i, "fasta"))
+    align_vec, enc = get_align_vec(align, SYMBOLS)
+    profile, categories = get_profile(align_vec, enc)
+    profile_residue_order = enc.inverse_transform(
+        np.expand_dims(categories, axis=1)
+    ).flatten()
+    joblib.dump(
+        {"profile": profile, "residue_order": profile_residue_order}, args.o
+    )
 
 
 def parse_arguments():
@@ -101,7 +116,9 @@ def parse_arguments():
     return args
 
 
-SYMBOLS = IUPACData.extended_protein_letters + "-"
+SYMBOLS = np.expand_dims(
+    list(IUPACData.extended_protein_letters + "-"), axis=1
+)
 
 if __name__ == "__main__":
     ARGS = parse_arguments()
