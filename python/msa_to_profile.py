@@ -81,7 +81,8 @@ def main(args):
         np.expand_dims(categories, axis=1)
     ).flatten()
     joblib.dump(
-        {"profile": profile, "residue_order": profile_residue_order}, args.o
+            {"profile": profile, "residue_order": profile_residue_order,
+                "num_sequences": len(align_vec)}, args.o
     )
 
 
