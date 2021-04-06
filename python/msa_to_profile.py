@@ -81,8 +81,12 @@ def main(args):
         np.expand_dims(categories, axis=1)
     ).flatten()
     joblib.dump(
-            {"profile": profile, "residue_order": profile_residue_order,
-                "num_sequences": len(align_vec)}, args.o
+        {
+            "profile": profile,
+            "residue_order": profile_residue_order,
+            "num_sequences": len(align_vec),
+        },
+        args.o,
     )
 
 
@@ -118,7 +122,7 @@ def parse_arguments():
 
 
 SYMBOLS = np.expand_dims(
-    list(IUPACData.extended_protein_letters + "-"), axis=1
+    list(IUPACData.protein_letters + "X-"), axis=1
 )
 
 if __name__ == "__main__":
