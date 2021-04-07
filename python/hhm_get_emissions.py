@@ -18,6 +18,7 @@ import os
 import re
 
 import joblib
+import numpy as np
 
 
 def get_pssm(file_handle):
@@ -32,15 +33,18 @@ def get_pssm(file_handle):
         .strip()
         .split()[1:-10]
     )
-    values = [
-        row[2:22] + row[23:-10]
-        for row in [
-            re.sub(r"\t+", "\t", re.sub(r"[\n+\s+]", r"\t", row))
-            .strip()
-            .split("\t")
-            for row in "\n".join(body.split("\n")[4:]).split("\n\n")
+    values = np.array(
+        [
+            row[2:22] + row[23:-10]
+            for row in [
+                re.sub(r"\t+", "\t", re.sub(r"[\n+\s+]", r"\t", row))
+                .strip()
+                .split("\t")
+                for row in "\n".join(body.split("\n")[4:]).split("\n\n")
+            ]
         ]
-    ]
+    )
+    values = np.where(values == "*", 99999, values).astype("int")
     pssm = [dict(zip(colnames, values_row)) for values_row in values]
 
     return pssm
