@@ -20,9 +20,9 @@ esac
 
 if [ -f "$1" ]; then
     while read -r line; do
-        wget "https://files.rcsb.org/download/$line.$ext"
+        wget -nc "https://files.rcsb.org/download/$line.$ext"
     done <"$1"
 else
     echo "No input file given. Trying to interpret the argument as a PDB ID"
-    wget "https://files.rcsb.org/download/$1.$ext"
+    wget -nc "https://files.rcsb.org/download/$1.$ext"
 fi

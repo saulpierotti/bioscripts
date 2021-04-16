@@ -10,6 +10,8 @@ It computes the pairwise distance matrix of the alpha carbons and
 saves it in a xz compressed joblib dump.
 It can optionally also take a list of pdb ids and do the same
 action for all the files with such names in the current directory.
+In case of files with more than 1 model, only the model with id 0 (the first
+one) is considered.
 """
 
 import argparse
@@ -24,34 +26,63 @@ from scipy import spatial
 def get_distance_matrix(mmcif_file, chain_id):
     """
     Given a protein structure in mmcif format and a chain id, extract the
-    residue type, the coordinate of each residue, and the resseq id. Compute
-    all the pairwise euclidean distances among residues. Returns a dictionary
-    containing all of these data.
+    residue type, the coordinate of each residue, and the residue numbering.
+    Compute all the pairwise euclidean distances among residues. Returns a
+    dictionary containing all of these data.
     """
 
     parser = PDB.MMCIFParser()
     structure = parser.get_structure("_", mmcif_file)
-    out = {"residue": [], "coordinates": [], "resseq": []}
+    out = {
+        # this is the residue identity (which aminoacid it is)
+        "residue": [],
+        # the xyz coordinates for the beta carbon (alpha for GLY)
+        "coordinates": [],
+        # this corresponds to the numerical part of PDB_BEG and PDB_END in the
+        # sifts mapping table (es. 1 for residue 1A)
+        "resseq": [],
+        # this corresponds to the letteral part of PDB_BEG and PDB_END in the
+        # sifts mapping table (es. A for residue 1A)
+        "icode": [],
+    }
 
     matching_chains = 0
 
-    for chain in structure.get_chains():
-        if chain.id != chain_id:
-            continue
-        matching_chains += 1
+    for model in structure:
+        if model.id == 0:
+            print("Processing model:", model.id)
 
-        for residue in chain.get_residues():
-            het_field = residue.id[0]
+            for chain in model:
+                if chain.id != chain_id:
+                    continue
+                matching_chains += 1
 
-            if het_field != " ":
-                continue
-            out["residue"].append(residue.resname)
-            out["coordinates"].append(residue["CA"].get_coord())
-            out["resseq"].append(residue.id[1])
+                for residue in chain.get_residues():
+                    het_field = residue.id[0]
+
+                    # discard HETATM records
+
+                    if het_field != " ":
+                        continue
+                    out["residue"].append(residue.resname)
+
+                    if residue.resname == "GLY":
+                        # GLY does not have a beta carbon
+                        out["coordinates"].append(residue["CA"].get_coord())
+                    else:
+                        out["coordinates"].append(residue["CB"].get_coord())
+                    out["resseq"].append(residue.id[1])
+                    out["icode"].append(residue.id[2])
+        else:
+            print("Skipping model:", model.id)
     assert matching_chains == 1
 
-    out["coordinates"] = np.array(out["coordinates"])
-    out["resseq"] = np.array(out["resseq"])
+    out["coordinates"] = np.array(out["coordinates"], dtype=float)
+    out["resseq"] = np.array(out["resseq"], dtype=int)
+    out["icode"] = np.array(out["icode"], dtype=str)
+    # NaN is not defined in a str array, and I need to represent in a way which
+    # is coherent with the way pandas represents it
+    out["icode"] = np.where(out["icode"] == " ", "nan", out["icode"])
     # the Minkowski 2-norm is the euclidean distance
     out["distance_matrix"] = spatial.distance_matrix(
         out["coordinates"], out["coordinates"], p=2
